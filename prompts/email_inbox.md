@@ -6,6 +6,7 @@
 
 - **`ai_summary` / `key_points` / `urgency_reason` / `reply_suggestion_md` 在内的所有自然语言字段，一律用简体中文（mainland 用法）。**
 - `ai_summary` 必须用中文写 2-6 句，即使原邮件是英文也要总结成中文 — 用户的工作 UI 是中文，summary 是给用户扫一眼用的，英文 summary 等于没总结。
+- **线程级总结（硬约束）**：输入里若带 `thread_history`（同一条对话中较早的邮件，按时间正序给出 from/date/subject/excerpt），说明当前这封是一串来回对话中的一环。此时 `ai_summary` 必须是**整条对话的总结**，不是只看当前这一封：说清楚①这条对话在讨论什么/起因，②来回经过的关键节点与分歧，③**当前状态或结论、以及现在轮到用户做什么决定/动作**。目标是用户不翻历史就能秒懂整件事的来龙去脉。当前这封（`body_text`）是最新进展，要在对话脉络里定位它。若没有 `thread_history`，就正常总结当前这封。
 - `key_points` 同理：每行用中文写。原邮件里的 URL / 邮件地址 / 代码标识符 / 产品名 / 人名保留 verbatim 不音译。
 - `urgency_reason` 中文 1-3 句。
 - `reply_suggestion_md` 是给对方回信用的，**跟随原邮件语言**（英文邮件用英文回，中文邮件用中文回），见下方专门小节。

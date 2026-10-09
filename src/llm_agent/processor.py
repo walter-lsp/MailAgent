@@ -447,10 +447,64 @@ class LLMProcessor:
             "attachments": attachments[:20],
             "body_text": body,
         }
+        thread_history = self._build_thread_history(email)
+        if thread_history:
+            payload["thread_history"] = thread_history
         return (
             "Classify the following email and call the classify_email tool.\n\n"
             + json.dumps(payload, ensure_ascii=False)
         )
+
+    def _build_thread_history(self, email: Any) -> list[dict]:
+        """同线程较早/相关邮件（最多 N 封），供模型做线程级（整条对话）摘要。
+        仅取 subject/from/date + 正文摘要片段以控制 token。空线程 / 无 repo → []。"""
+        thread_id = (getattr(email, "thread_id", "") or "").strip()
+        cur_id = getattr(email, "internal_id", None)
+        if not thread_id or self._repo is None:
+            return []
+        try:
+            conn = self._repo._connect()
+            try:
+                sql = (
+                    "SELECT internal_id, sender_name, sender, subject, date_received "
+                    "FROM email_metadata WHERE thread_id = ? "
+                )
+                params: list = [thread_id]
+                if cur_id is not None:
+                    sql += "AND internal_id != ? "
+                    params.append(int(cur_id))
+                sql += "ORDER BY date_received ASC"
+                rows = conn.execute(sql, params).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"[llm] thread_history query failed thread_id={thread_id}: {e}")
+            return []
+        if not rows:
+            return []
+        MAX_MSGS = 6
+        EXCERPT = 500
+        picked = rows if len(rows) <= MAX_MSGS else (rows[: MAX_MSGS - 2] + rows[-2:])
+        history: list[dict] = []
+        for r in picked:
+            iid = r["internal_id"]
+            excerpt = ""
+            try:
+                md = self._repo.get_body_markdown(int(iid)) if iid is not None else ""
+                if md:
+                    excerpt = md.strip()[:EXCERPT]
+            except Exception:
+                excerpt = ""
+            frm = (
+                f"{(r['sender_name'] or '').strip()} <{(r['sender'] or '').strip()}>"
+            ).strip()
+            history.append({
+                "from": frm,
+                "date": r["date_received"] or "",
+                "subject": r["subject"] or "",
+                "excerpt": excerpt,
+            })
+        return history
 
     def _plaintext_body(self, email: Any) -> str:
         # v4: 优先从 SQLite 读 markdownify 处理过的 body（dual-write 落盘后立即可读）.
